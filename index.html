@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>간단한 총게임 (HTML/CSS/JS)</title>
+<style>
+  :root{--bg:#0b0f1a;--panel:#0f1724;--accent:#1fb6ff;--text:#e6eef6;}
+  *{box-sizing:border-box;font-family:Inter,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  html,body{height:100%;margin:0;background:linear-gradient(180deg,#061021 0%, #081427 100%);color:var(--text)}
+  #gameWrap{display:grid;grid-template-columns:1fr 320px;gap:12px;padding:12px;height:100vh}
+  canvas{background:linear-gradient(180deg,#0b2130, #07121a);border-radius:8px;display:block;width:100%;height:100%;}
+  .panel{background:var(--panel);padding:12px;border-radius:8px;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+  h2{margin:0 0 8px 0;font-size:16px}
+  .status{display:flex;flex-direction:column;gap:8px}
+  .bar{background:#03121a;border-radius:6px;padding:6px}
+  .bar-inner{height:18px;border-radius:6px;background:linear-gradient(90deg,var(--accent),#3affc3);width:100%}
+  .row{display:flex;align-items:center;justify-content:space-between}
+  .inventory{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin-top:10px}
+  .slot{height:56px;background:#071125;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#9fb0c4;font-size:12px;cursor:pointer;border:2px solid transparent}
+  .slot.active{border-color:var(--accent)}
+  .pickup{position:absolute;padding:6px 8px;border-radius:6px;background:#0b2330;color:var(--text);font-size:13px}
+  .controls{font-size:13px;color:#b6c8da;margin-top:8px}
+  .small{font-size:12px;color:#9fb0c4}
+  button{background:transparent;border:1px solid #214a5c;padding:8px;border-radius:6px;color:var(--text);cursor:pointer}
+  .footer{margin-top:12px;font-size:12px;color:#9fb0c4}
+  
+</style>
+</head>
+<body>
+<div id="gameWrap">
+  <div>
+    <canvas id="gameCanvas" width="1280" height="720"></canvas>
+  </div>
+  <div class="panel">
+    <h2>플레이어 상태</h2>
+    <div class="status">
+      <div>
+        <div class="row"><div>체력</div><div id="hpText">150 / 150</div></div>
+        <div class="bar"><div id="hpBar" class="bar-inner" style="width:100%"></div></div>
+      </div>
+      <div>
+        <div class="row"><div>장착 무기</div><div id="weaponName">권총 (Pistol)</div></div>
+        <div class="row"><div>탄약</div><div id="ammoText">30 / 30</div></div>
+      </div>
+      <div>
+        <div class="row"><div>몹 수</div><div id="mobCount">0</div></div>
+        <div class="row"><div>스코어</div><div id="score">0</div></div>
+      </div>
+      <div style="margin-top:8px">
+        <div class="small">조작: WASD 이동 · 마우스 조준 · 좌클릭 사격 · R 재장전 · 숫자 1-5 슬롯 선택</div>
+      </div>
+      <div style="margin-top:10px">
+        <div class="row"><div><strong>인벤토리</strong></div><div class="small">무기를 획득하면 슬롯에 들어갑니다</div></div>
+        <div class="inventory" id="inventory">
+          <div class="slot active" data-slot="0" title="기본 권총">Pistol</div>
+          <div class="slot" data-slot="1">빈 슬롯</div>
+          <div class="slot" data-slot="2">빈 슬롯</div>
+          <div class="slot" data-slot="3">빈 슬롯</div>
+          <div class="slot" data-slot="4">빈 슬롯</div>
+        </div>
+      </div>
+      <div id="weapon3d" style="width:300px;height:180px;margin-top:10px"></div>
+      <div class="footer">몹은 체력 150입니다. 몹을 처치하면 탄약과 무기를 드랍합니다.</div>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<script>
+// Simple 2D shooter. Player HP 150. Mobs HP 150. Weapons: Pistol, SMG, AR, DMR, SR.
+// Start with Pistol and 30 bullets. Mobs drop ammo and weapons. Inventory allows equipping.
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+// UI elements
+const hpText = document.getElementById('hpText');
+const hpBar = document.getElementById('hpBar');
+const weaponNameEl = document.getElementById('weaponName');
+const ammoText = document.getElementById('ammoText');
+const mobCount = document.getElementById('mobCount');
+const scoreEl = document.getElementById('score');
+const inventoryEl = document.getElementById('inventory');
+const weapon3DEl = document.getElementById('weapon3d');
+
+let score = 0;
+
+// Weapons definition
+const WEAPONS = {
+  pistol: {id:'pistol', name:'권총 (Pistol)', damage:30, fireRate:300, mag:30, reload:1200, bulletSpeed:600, auto:false},
+  smg:    {id:'smg',    name:'SMG',            damage:45, fireRate:80,  mag:40, reload:900,  bulletSpeed:700, auto:true},
+  ar:     {id:'ar',     name:'AR',             damage:50, fireRate:105, mag:30, reload:1400, bulletSpeed:800, auto:true},
+  dmr:    {id:'dmr',    name:'DMR',            damage:75, fireRate:500, mag:10, reload:1800, bulletSpeed:1000, auto:false},
+  sr:     {id:'sr',     name:'SR',             damage:150, fireRate:900, mag:5,  reload:2200, bulletSpeed:1400, auto:false}
+};
+
+// Game state
+const player = {
+  x: W/2, y: H/2, r:14, speed:200, hp:150, maxHp:150,
+  weapon: 'pistol', inventory: ['pistol', null, null, null, null], ammoPool: {pistol:0,smg:0,ar:0,dmr:0,sr:0}
+};
+
+// Give default ammo for pistol
+player.currentAmmo = WEAPONS.pistol.mag; // in magazine
+player.reserveAmmo = 0; // global pool for currently equipped
+
+let lastShot = 0;
+let reloading = false;
+let mouse = {x:0,y:0,down:false};
+let keys = {};
+let bullets = [];
+let mobs = [];
+let pickups = []; // {x,y,type,weapon or ammo,count}
+let lastSpawn = 0;
+let gameOver = false;
+let threePreview = {scene:null,camera:null,renderer:null,mesh:null};
+
+// Input
+window.addEventListener('mousemove', e=>{
+  const rect = canvas.getBoundingClientRect();
+  mouse.x = (e.clientX - rect.left) * (canvas.width/rect.width);
+  mouse.y = (e.clientY - rect.top) * (canvas.height/rect.height);
+});
+window.addEventListener('mousedown', e=>{mouse.down = true});
+window.addEventListener('mouseup', e=>{mouse.down = false});
+window.addEventListener('keydown', e=>{keys[e.key.toLowerCase()]=true; if(e.key.match(/^[1-5]$/)) selectSlot(parseInt(e.key)-1); if(e.key.toLowerCase()==='r') reload();});
+window.addEventListener('keyup', e=>{keys[e.key.toLowerCase()]=false});
+
+// Inventory click
+inventoryEl.addEventListener('click', e=>{
+  const slot = e.target.closest('.slot');
+  if(!slot) return;
+  const idx = parseInt(slot.dataset.slot);
+  selectSlot(idx);
+});
+
+function selectSlot(idx){
+  const w = player.inventory[idx];
+  if(!w) return; // empty
+  // set active UI
+  [...inventoryEl.querySelectorAll('.slot')].forEach(s=>s.classList.remove('active'));
+  inventoryEl.querySelector(`[data-slot='${idx}']`).classList.add('active');
+  equipWeapon(w);
+}
+
+function equipWeapon(id){
+  player.weapon = id;
+  // if magazine absent, create default magazine for that weapon if first time
+  if(player['mag_'+id]===undefined) player['mag_'+id] = WEAPONS[id].mag;
+  weaponNameEl.textContent = WEAPONS[id].name;
+  ammoText.textContent = `${player['mag_'+id]} / ${player.ammoPool[id]}`;
+  updateWeaponPreviewModel(id);
+}
+
+function reload(){
+  if(reloading) return;
+  const w = WEAPONS[player.weapon];
+  const magKey = 'mag_'+player.weapon;
+  const reserve = player.ammoPool[player.weapon] || 0;
+  const need = w.mag - (player[magKey]||0);
+  if(need<=0 || reserve<=0) return;
+  reloading = true;
+  setTimeout(()=>{
+    const toLoad = Math.min(need, reserve);
+    player[magKey] = (player[magKey]||0)+toLoad;
+    player.ammoPool[player.weapon] -= toLoad;
+    reloading = false;
+    ammoText.textContent = `${player[magKey]} / ${player.ammoPool[player.weapon]}`;
+  }, w.reload);
+}
+
+// Spawn mob
+function spawnMob(){
+  const edge = Math.random();
+  let x = Math.random()*W, y = Math.random()*H;
+  if(edge<0.25) x = -30;
+  else if(edge<0.5) x = W+30;
+  else if(edge<0.75) y = -30;
+  else y = H+30;
+  mobs.push({x,y,r:18,hp:150,maxHp:150,speed:60 + Math.random()*40, target:null});
+}
+
+// Update loop
+let lastTime = performance.now();
+function loop(t){
+  const dt = Math.min((t-lastTime)/1000, 0.033);
+  lastTime = t;
+  if(!gameOver) update(dt);
+  render();
+  if(!gameOver) requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+function update(dt){
+  // spawn mobs occasionally
+  if(performance.now()-lastSpawn > 4500 + Math.random()*2500){ spawnMob(); lastSpawn = performance.now(); }
+
+  // player movement
+  let vx=0, vy=0;
+  if(keys['w']) vy -= 1; if(keys['s']) vy += 1; if(keys['a']) vx -=1; if(keys['d']) vx +=1;
+  const len = Math.hypot(vx,vy);
+  if(len>0){ vx/=len; vy/=len; }
+  player.x += vx*player.speed*dt; player.y += vy*player.speed*dt;
+  player.x = Math.max(20, Math.min(W-20, player.x));
+  player.y = Math.max(20, Math.min(H-20, player.y));
+
+  // shooting
+  const weapon = WEAPONS[player.weapon];
+  const magKey = 'mag_'+player.weapon;
+  if(mouse.down){
+    if(weapon.auto || mouse._just){
+      tryShoot();
+    }
+    mouse._just = false;
+  }
+  // allow single-click weapons to shoot once per click
+  if(!mouse.down) mouse._just = true;
+
+  // update bullets
+  for(let i=bullets.length-1;i>=0;i--){
+    const b = bullets[i];
+    b.x += b.vx*dt; b.y += b.vy*dt;
+    b.life -= dt;
+    // remove if out of bounds or life<=0
+    if(b.x< -50 || b.x>W+50 || b.y< -50 || b.y>H+50 || b.life<=0){ bullets.splice(i,1); continue; }
+    // check collision with mobs
+    for(let j=mobs.length-1;j>=0;j--){
+      const m = mobs[j];
+      const dx = m.x - b.x, dy = m.y - b.y;
+      if(Math.hypot(dx,dy) < m.r){
+        m.hp -= b.damage;
+        bullets.splice(i,1);
+        if(m.hp<=0){
+          // mob dies
+          spawnDrops(m.x,m.y);
+          mobs.splice(j,1);
+          score += 10;
+        }
+        break;
+      }
+    }
+  }
+
+  // mobs move toward player and can damage player when close
+  for(let i=mobs.length-1;i>=0;i--){
+    const m = mobs[i];
+    const dx = player.x - m.x, dy = player.y - m.y;
+    const dist = Math.hypot(dx,dy);
+    const nx = dx/dist, ny = dy/dist;
+    m.x += nx * m.speed * dt;
+    m.y += ny * m.speed * dt;
+    // collision with player
+    if(dist < m.r + player.r){
+      // deal damage
+      player.hp -= 30 * dt; // continuous damage when inside
+      if(player.hp<=0){ player.hp=0; gameOver = true; }
+    }
+  }
+
+  // pickups
+  for(let i=pickups.length-1;i>=0;i--){
+    const p = pickups[i];
+    // auto expire
+    if(performance.now() - p.spawnAt > 20000){ pickups.splice(i,1); continue; }
+    // pickup when player touches
+    const d = Math.hypot(player.x - p.x, player.y - p.y);
+    if(d < 26){
+      if(p.type === 'ammo'){
+        player.ammoPool[p.weapon] = (player.ammoPool[p.weapon]||0) + p.count;
+        // if currently equipped, update ammo display
+        if(player.weapon === p.weapon) ammoText.textContent = `${player['mag_'+player.weapon]} / ${player.ammoPool[player.weapon]}`;
+      } else if(p.type === 'weapon'){
+        // place weapon in fixed slot order
+        const slotMap = {pistol:0, smg:1, ar:2, dmr:3, sr:4};
+        const idx = slotMap[p.weapon];
+        player.inventory[idx] = p.weapon;
+        // give full magazine plus some reserve
+        player['mag_'+p.weapon] = WEAPONS[p.weapon].mag;
+        player.ammoPool[p.weapon] = (player.ammoPool[p.weapon]||0) + Math.floor(WEAPONS[p.weapon].mag*1.5);
+        updateInventoryUI();
+      }
+      pickups.splice(i,1);
+    }
+  }
+
+  // update UI
+  hpText.textContent = `${Math.ceil(player.hp)} / ${player.maxHp}`;
+  hpBar.style.width = `${(player.hp/player.maxHp)*100}%`;
+  if(player['mag_'+player.weapon]===undefined) player['mag_'+player.weapon] = WEAPONS[player.weapon].mag;
+  ammoText.textContent = `${player['mag_'+player.weapon]} / ${player.ammoPool[player.weapon]||0}`;
+  mobCount.textContent = mobs.length;
+  scoreEl.textContent = score;
+
+}
+
+function tryShoot(){
+  const now = performance.now();
+  const w = WEAPONS[player.weapon];
+  if(reloading) return;
+  if(now - lastShot < w.fireRate) return;
+  const magKey = 'mag_'+player.weapon;
+  if((player[magKey]||0) <= 0){
+    // click to reload automatically
+    reload();
+    return;
+  }
+  // shoot
+  lastShot = now;
+  player[magKey] -= 1;
+  // create bullet
+  const angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+  const speed = w.bulletSpeed;
+  bullets.push({x:player.x + Math.cos(angle)*20, y:player.y + Math.sin(angle)*20, vx:Math.cos(angle)*speed, vy:Math.sin(angle)*speed, life:2.5, damage:w.damage});
+}
+
+function spawnDrops(x,y){
+  // drop weapon sometimes and ammo
+  // drop ammo for random weapon and occasionally the mob's weapon
+  const weaponDropChance = 0.45;
+  if(Math.random() < weaponDropChance){
+    // pick a random weapon type except pistol
+    const pool = ['smg','ar','dmr','sr'];
+    const w = pool[Math.floor(Math.random()*pool.length)];
+    pickups.push({x,y,type:'weapon',weapon:w,spawnAt:performance.now()});
+  }
+  // ammo drop for a random weapon
+  const amWeapon = Object.keys(WEAPONS)[Math.floor(Math.random()*Object.keys(WEAPONS).length)];
+  const count = 30 + Math.floor(Math.random()*40);
+  pickups.push({x:x+20,y:y+10,type:'ammo',weapon:amWeapon,count,spawnAt:performance.now()});
+}
+
+function updateInventoryUI(){
+  const slots = inventoryEl.querySelectorAll('.slot');
+  for(let i=0;i<5;i++){
+    const w = player.inventory[i];
+    slots[i].textContent = w ? WEAPONS[w].name.split(' ')[0] : '빈 슬롯';
+    if(w && slots[i].dataset.slot == i && slots[i].classList.contains('active') && player.weapon !== w){
+      // ensure active matches player weapon
+      slots[i].classList.add('active');
+    }
+  }
+}
+
+function initWeaponPreview3D(){
+  if(!weapon3DEl) return;
+  const w = weapon3DEl.clientWidth;
+  const h = weapon3DEl.clientHeight;
+  threePreview.scene = new THREE.Scene();
+  threePreview.camera = new THREE.PerspectiveCamera(45, w/h, 0.1, 100);
+  threePreview.camera.position.set(0, 1.2, 3);
+  threePreview.renderer = new THREE.WebGLRenderer({antialias:true, alpha:true});
+  threePreview.renderer.setSize(w,h);
+  weapon3DEl.appendChild(threePreview.renderer.domElement);
+  const amb = new THREE.AmbientLight(0xffffff, 0.6);
+  threePreview.scene.add(amb);
+  const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+  dir.position.set(2,3,4);
+  threePreview.scene.add(dir);
+  const geo = new THREE.BoxGeometry(1,0.3,0.25);
+  const mat = new THREE.MeshStandardMaterial({color:0x66aaff, metalness:0.2, roughness:0.6});
+  threePreview.mesh = new THREE.Mesh(geo, mat);
+  threePreview.scene.add(threePreview.mesh);
+}
+
+function updateWeaponPreviewModel(id){
+  if(!threePreview.mesh) return;
+  let size;
+  let color;
+  if(id==='pistol'){ size=[0.8,0.3,0.22]; color=0x66aaff; }
+  else if(id==='smg'){ size=[1.1,0.35,0.25]; color=0x55ffcc; }
+  else if(id==='ar'){ size=[1.4,0.4,0.28]; color=0xffcc66; }
+  else if(id==='dmr'){ size=[1.2,0.35,0.26]; color=0xcc99ff; }
+  else if(id==='sr'){ size=[1.6,0.38,0.3]; color=0xff8888; }
+  threePreview.mesh.geometry.dispose();
+  threePreview.mesh.geometry = new THREE.BoxGeometry(size[0],size[1],size[2]);
+  threePreview.mesh.material.color.setHex(color);
+}
+
+function animateWeaponPreview3D(){
+  if(threePreview.mesh){ threePreview.mesh.rotation.y += 0.01; threePreview.mesh.rotation.x = 0.1; }
+  if(threePreview.renderer && threePreview.scene && threePreview.camera){ threePreview.renderer.render(threePreview.scene, threePreview.camera); }
+  requestAnimationFrame(animateWeaponPreview3D);
+}
+
+// render
+function render(){
+  ctx.clearRect(0,0,W,H);
+  // background grid
+  ctx.save();
+  ctx.globalAlpha = 0.06;
+  ctx.fillStyle = '#000';
+  for(let gx=0;gx<W;gx+=48){ ctx.fillRect(gx,0,1,H); }
+  for(let gy=0;gy<H;gy+=48){ ctx.fillRect(0,gy,W,1); }
+  ctx.restore();
+
+  // draw pickups
+  for(const p of pickups){
+    ctx.save();
+    ctx.translate(p.x,p.y);
+    ctx.fillStyle = (p.type==='ammo')? '#cfe6ff' : '#ffd7a8';
+    ctx.beginPath(); ctx.arc(0,0,10,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#012'; ctx.font='12px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(p.type==='ammo' ? `+${p.count}` : WEAPONS[p.weapon].name.split(' ')[0],0,0);
+    ctx.restore();
+  }
+
+  // draw mobs
+  for(const m of mobs){
+    ctx.save();
+    ctx.translate(m.x,m.y);
+    ctx.fillStyle = '#ff6978';
+    ctx.beginPath(); ctx.arc(0,0,m.r,0,Math.PI*2); ctx.fill();
+    // hp bar
+    ctx.fillStyle = '#222'; ctx.fillRect(-m.r, -m.r-10, m.r*2,6);
+    ctx.fillStyle = '#6cf'; ctx.fillRect(-m.r, -m.r-10, (m.hp/m.maxHp)*m.r*2,6);
+    ctx.restore();
+  }
+
+  // bullets
+  ctx.fillStyle = '#fff';
+  for(const b of bullets){ ctx.beginPath(); ctx.arc(b.x,b.y,4,0,Math.PI*2); ctx.fill(); }
+
+  // player
+  ctx.save();
+  ctx.translate(player.x, player.y);
+  // aim rotation
+  const ang = Math.atan2(mouse.y-player.y, mouse.x-player.x);
+  ctx.rotate(ang);
+  // body
+  ctx.fillStyle = '#9fb0c4'; ctx.beginPath(); ctx.arc(0,0,player.r,0,Math.PI*2); ctx.fill();
+  // gun
+  ctx.fillStyle = '#243447'; ctx.fillRect(0,-6,24,12);
+  ctx.restore();
+
+  // HUD crosshair
+  ctx.save();
+  ctx.beginPath(); ctx.strokeStyle='#d8f3ff'; ctx.moveTo(mouse.x-8, mouse.y); ctx.lineTo(mouse.x+8, mouse.y); ctx.moveTo(mouse.x, mouse.y-8); ctx.lineTo(mouse.x, mouse.y+8); ctx.stroke(); ctx.restore();
+
+  // top-left simple text
+  ctx.fillStyle='#bcd'; ctx.font='14px sans-serif'; ctx.fillText(`HP: ${Math.ceil(player.hp)}`, 12, 20);
+  ctx.fillText(`Weapon: ${WEAPONS[player.weapon].name}`, 12, 40);
+
+  if(gameOver){
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = '#fff';
+    ctx.font = '48px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('게임 종료', W/2, H/2 - 20);
+    ctx.font = '20px sans-serif';
+    ctx.fillText(`스코어: ${score}`, W/2, H/2 + 24);
+    ctx.restore();
+  }
+}
+
+function init3D(){}
+function render3D(){}
+
+// initialize
+function init(){
+  // start equip
+  equipWeapon('pistol');
+  // populate ammo pool
+  for(const k of Object.keys(WEAPONS)) { player.ammoPool[k] = 0; }
+  player.ammoPool['pistol'] = 0; // reserve 0; magazine already full
+  updateInventoryUI();
+  initWeaponPreview3D();
+  updateWeaponPreviewModel('pistol');
+  animateWeaponPreview3D();
+  // spawn a few mobs
+  for(let i=0;i<3;i++) spawnMob();
+}
+
+init();
+
+</script>
+</body>
+</html>
