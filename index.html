@@ -467,7 +467,7 @@ function init(){
   equipWeapon('pistol');
   // populate ammo pool
   for(const k of Object.keys(WEAPONS)) { player.ammoPool[k] = 0; }
-  player.ammoPool['pistol'] = 0; // reserve 0; magazine already full
+  player.ammoPool['pistol'] = Infinity; // reserve 0; magazine already full
   updateInventoryUI();
   initWeaponPreview3D();
   updateWeaponPreviewModel('pistol');
