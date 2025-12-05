@@ -118,7 +118,7 @@ let gameOver = false;
 let threePreview = {scene:null,camera:null,renderer:null,mesh:null};
 const SPAWN_INTERVAL = 2000;
 const SPAWN_COUNT = 2;
-  
+
 // Input
 window.addEventListener('mousemove', e=>{
   const rect = canvas.getBoundingClientRect();
@@ -181,7 +181,7 @@ function spawnMob(){
   else if(edge<0.5) x = W+30;
   else if(edge<0.75) y = -30;
   else y = H+30;
-  mobs.push({x,y,r:18,hp:150,maxHp:150,speed:60 + Math.random()*40, target:null});
+  mobs.push({x,y,r:18,hp:150,maxHp:150,speed:player.speed/2, target:null});
 }
 
 // Update loop
@@ -197,7 +197,7 @@ requestAnimationFrame(loop);
 
 function update(dt){
   // spawn mobs occasionally
-  if(performance.now()-lastSpawn > 4500 + Math.random()*2500){ spawnMob(); lastSpawn = performance.now(); }
+  if(performance.now()-lastSpawn > SPAWN_INTERVAL){ for(let i=0;i<SPAWN_COUNT;i++) spawnMob(); lastSpawn = performance.now(); }
 
   // player movement
   let vx=0, vy=0;
@@ -467,7 +467,7 @@ function init(){
   equipWeapon('pistol');
   // populate ammo pool
   for(const k of Object.keys(WEAPONS)) { player.ammoPool[k] = 0; }
-  player.ammoPool['pistol'] = Infinity; // reserve 0; magazine already full
+  player.ammoPool['pistol'] = Infinity;
   updateInventoryUI();
   initWeaponPreview3D();
   updateWeaponPreviewModel('pistol');
