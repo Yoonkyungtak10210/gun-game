@@ -89,7 +89,7 @@ let score = 0;
 
 // Weapons definition
 const WEAPONS = {
-  pistol: {id:'pistol', name:'권총 (Pistol)', damage:30, fireRate:300, mag:30, reload:1200, bulletSpeed:600, auto:false},
+  pistol: {id:'pistol', name:'권총 (Pistol)', damage:30, fireRate:300, mag:20, reload:1200, bulletSpeed:600, auto:false},
   smg:    {id:'smg',    name:'SMG',            damage:45, fireRate:80,  mag:40, reload:900,  bulletSpeed:700, auto:true},
   ar:     {id:'ar',     name:'AR',             damage:50, fireRate:105, mag:30, reload:1400, bulletSpeed:800, auto:true},
   dmr:    {id:'dmr',    name:'DMR',            damage:75, fireRate:500, mag:10, reload:1800, bulletSpeed:1000, auto:false},
@@ -116,7 +116,9 @@ let pickups = []; // {x,y,type,weapon or ammo,count}
 let lastSpawn = 0;
 let gameOver = false;
 let threePreview = {scene:null,camera:null,renderer:null,mesh:null};
-
+const SPAWN_INTERVAL = 2000;
+const SPAWN_COUNT = 4;
+  
 // Input
 window.addEventListener('mousemove', e=>{
   const rect = canvas.getBoundingClientRect();
